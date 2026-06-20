@@ -7,8 +7,8 @@
 #include <LiquidCrystal_I2C.h>
 
 // Firebase Configuration
-#define FIREBASE_PROJECT_ID "food-dispenser-22913"
-#define FIREBASE_API_KEY "AIzaSyCV-Id-4iBVtJ4hwDkO2VLG11smupJnm34"
+#define FIREBASE_PROJECT_ID "***********"
+#define FIREBASE_API_KEY "*****************"
 
 // Firebase objects
 FirebaseData firebaseData;
@@ -16,24 +16,23 @@ FirebaseAuth auth;
 FirebaseConfig config;
 
 // WiFi Credentials
-const char* ssid = "Aadeessh";
-const char* password = "19102005";
+const char* ssid = "Pavi";
+const char* password = "123456789";
 
 // Firebase Authentication Credentials
 const char* firebaseEmail = "thefdcompany03@gmail.com";
-const char* firebasePassword = "Hepy@8075";
+const char* firebasePassword = "******";
 
 // Define LCD
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // Define motor control pins for two motors
-#define IN1 32  // Motor 1 Forward
-#define IN2 33  // Motor 1 Reverse
-#define ENA 14  // Motor 1 Speed Control
-
-#define IN3 27  // Motor 2 Forward
-#define IN4 26  // Motor 2 Reverse
-#define ENB 12  // Motor 2 Speed Control
+#define IN1 32
+#define IN2 33
+#define ENA 14
+#define IN3 27
+#define IN4 26
+#define ENB 12
 
 // Define ultrasonic sensor
 #define TRIG_PIN 16
@@ -44,39 +43,40 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define SCK 5
 HX711_ADC LoadCell(DT, SCK);
 
-// Define servo
+// Define servos
 #define SERVO_PIN 25
+#define SERVO2_PIN 23
 Servo myServo;
+Servo myServo2;
 
 // Variables for weight
 float calibrationValue = 210.99;
-unsigned long t = 0;
 float weight = 0;
+
+// Variables for continuous servo control
+unsigned long lastDirectionChange = 0;
+int servo2Direction = 100;
 
 void setup() {
   Serial.begin(115200);
 
-  // Initialize LCD
   lcd.init();
   lcd.backlight();
   lcd.setCursor(0, 0);
   lcd.print("System Ready");
 
-  // Connect to WiFi
-  Serial.print("Connecting to WiFi...");
   WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi...");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(1000);
   }
   Serial.println("\n✅ Connected to WiFi!");
 
-  // Set Firebase Configuration
   config.api_key = FIREBASE_API_KEY;
   auth.user.email = firebaseEmail;
   auth.user.password = firebasePassword;
 
-  // Initialize Firebase
   Firebase.begin(&config, &auth);
   Firebase.reconnectWiFi(true);
 
@@ -87,7 +87,6 @@ void setup() {
     return;
   }
 
-  // Initialize motor and servo
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(ENA, OUTPUT);
@@ -96,12 +95,11 @@ void setup() {
   pinMode(ENB, OUTPUT);
 
   myServo.attach(SERVO_PIN);
+  myServo2.attach(SERVO2_PIN);
 
-  // Initialize ultrasonic sensor
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
 
-  // Initialize load cell
   LoadCell.begin();
   LoadCell.start(1000, true);
   LoadCell.setCalFactor(calibrationValue);
@@ -109,7 +107,6 @@ void setup() {
   Serial.println("✅ System Ready. Waiting for QR code...");
 }
 
-// Function to get distance using ultrasonic sensor
 long getDistance() {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
@@ -120,23 +117,12 @@ long getDistance() {
   return duration * 0.034 / 2;
 }
 
-// Function to perform tare and reset weight to zero
 void performTare() {
   Serial.println("⚖️  Performing Tare...");
-  LoadCell.tareNoDelay();  // Start tare without blocking
-  unsigned long tareTimeout = millis();
-
-  while (!LoadCell.update()) {
-    if (millis() - tareTimeout > 2000) {
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Tare Failed!");
-      Serial.println("❌ Tare Failed!");
-      delay(1000);
-      return;
-    }
-  }
-
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Taring...");
+  LoadCell.tare();
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Tare Complete");
@@ -145,28 +131,22 @@ void performTare() {
   lcd.clear();
 }
 
-// Function to start motors
 void startMotors() {
   Serial.println("🏎️ Motors Started...");
-
   digitalWrite(IN1, HIGH);
   digitalWrite(IN2, LOW);
-  analogWrite(ENA, 255); // Motor 1 Speed
-
+  analogWrite(ENA, 255);
   digitalWrite(IN3, HIGH);
   digitalWrite(IN4, LOW);
-  analogWrite(ENB, 255); // Motor 2 Speed
+  analogWrite(ENB, 255);
 }
 
-// Function to stop motors
 void stopMotors() {
   Serial.println("⏹️ Stopping Motors...");
-
   digitalWrite(IN1, LOW);
   digitalWrite(IN2, LOW);
   digitalWrite(IN3, LOW);
   digitalWrite(IN4, LOW);
-
   analogWrite(ENA, 0);
   analogWrite(ENB, 0);
 }
@@ -189,7 +169,6 @@ void loop() {
 
       DynamicJsonDocument doc(2048);
       DeserializationError error = deserializeJson(doc, jsonData);
-
       if (error) {
         Serial.println("❌ Failed to parse JSON");
         return;
@@ -201,8 +180,7 @@ void loop() {
       for (JsonVariant v : foodItems) {
         String foodItem = v["mapValue"]["fields"]["name"]["stringValue"].as<String>();
         Serial.println("🍲 Checking item: " + foodItem);
-
-        if (foodItem == "Curd Rice" || foodItem == "Tomato rice" || foodItem == "Kuska") {
+        if (foodItem == "Curd Rice" || foodItem == "Tomato Rice" || foodItem == "Kuska") {
           itemFound = true;
           Serial.println("✅ " + foodItem + " found. Proceeding...");
           break;
@@ -223,14 +201,16 @@ void loop() {
   }
 
   delay(1000);
-
   long distance = getDistance();
-  if (distance > 0 && distance <= 20) {
+  if (distance >= 0 && distance <= 23) {
     Serial.println("🎯 Object Detected. Starting Process...");
+
     performTare();
+    weight = 0;
 
     startMotors();
-    myServo.write(180);
+    myServo.write(90);
+
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Running...");
@@ -240,19 +220,31 @@ void loop() {
       if (LoadCell.update()) {
         weight = abs(LoadCell.getData());
         Serial.println("⚖️  Weight: " + String(weight) + " g");
-
         lcd.clear();
         lcd.setCursor(0, 0);
         lcd.print("Weight: " + String(weight) + " g");
       }
+
+      if (millis() - lastDirectionChange > 1000) {
+        lastDirectionChange = millis();
+        servo2Direction = (servo2Direction == 80) ? 100 : 80;
+        myServo2.write(servo2Direction);
+      }
+
+      delay(100);
+      myServo2.write(90);
+      delay(100);
     }
 
     stopMotors();
-    myServo.write(0);
+    myServo.write(180);
+    myServo2.write(90);
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Weight Limit Reached");
+    lcd.print("Weight Reached");
     Serial.println("✅ Weight Limit Reached. Motors Stopped.");
+
+    weight = 0;
   } else {
     Serial.println("⚠️ No object detected. Waiting...");
   }
